@@ -64,9 +64,11 @@ Wait for the packages to download and install. You should see "Successfully inst
 
 **To run the GUI:**
 ```
-streamlit run app.py
+python -m streamlit run app.py
 ```
 A browser window will open automatically with the interface.
+
+> **Note:** If `streamlit run app.py` gives a "not recognized" error, use `python -m streamlit run app.py` instead. This ensures Python finds the streamlit module even if it's not in your PATH.
 
 **To run from command line:**
 ```
@@ -141,9 +143,11 @@ Wait for the packages to download and install.
 
 **To run the GUI:**
 ```
-streamlit run app.py
+python3 -m streamlit run app.py
 ```
 A browser window will open automatically with the interface.
+
+> **Note:** If `streamlit run app.py` gives a "command not found" error, use `python3 -m streamlit run app.py` instead.
 
 **To run from command line:**
 ```
@@ -160,7 +164,8 @@ python3 temp_analysis.py hsvWeather_112024.csv --streak --metric TMAX --threshol
 2. Navigate to the project folder
 3. Run:
    ```
-   streamlit run app.py
+   python -m streamlit run app.py   # Windows
+   python3 -m streamlit run app.py  # Mac
    ```
 4. A browser window opens with the interface
 5. Select an analysis type from the sidebar
@@ -230,6 +235,14 @@ Try these alternatives:
 ```
 python -m pip install -r requirements.txt    # Windows
 python3 -m pip install -r requirements.txt   # Mac
+```
+
+### "streamlit is not recognized" or "command not found: streamlit"
+
+Streamlit isn't in your PATH. Use the module syntax instead:
+```
+python -m streamlit run app.py    # Windows
+python3 -m streamlit run app.py   # Mac
 ```
 
 ### "No module named 'pandas'" (or numpy, streamlit)
