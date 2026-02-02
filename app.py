@@ -44,9 +44,20 @@ def main():
 
                 cols = preview_df.columns.tolist()
 
-                date_col = st.selectbox("DATE column:", cols, index=0)
-                tmax_col = st.selectbox("TMAX column:", cols, index=min(1, len(cols)-1))
-                tmin_col = st.selectbox("TMIN column:", cols, index=min(2, len(cols)-1))
+                # Auto-detect column indices by name (case-insensitive)
+                def find_col_index(cols, name, fallback):
+                    for i, col in enumerate(cols):
+                        if col.upper() == name.upper():
+                            return i
+                    return fallback
+
+                date_idx = find_col_index(cols, 'DATE', 0)
+                tmax_idx = find_col_index(cols, 'TMAX', min(1, len(cols)-1))
+                tmin_idx = find_col_index(cols, 'TMIN', min(2, len(cols)-1))
+
+                date_col = st.selectbox("DATE column:", cols, index=date_idx)
+                tmax_col = st.selectbox("TMAX column:", cols, index=tmax_idx)
+                tmin_col = st.selectbox("TMIN column:", cols, index=tmin_idx)
 
                 if date_col != 'DATE' or tmax_col != 'TMAX' or tmin_col != 'TMIN':
                     column_map = {}
