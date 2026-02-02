@@ -88,11 +88,17 @@ def main():
         # Show data info
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total Records", f"{len(analyzer.df):,}")
+            st.metric("Valid Records", f"{len(analyzer.df):,}")
         with col2:
             st.metric("Start Date", analyzer.df['DATE'].min().strftime('%Y-%m-%d'))
         with col3:
             st.metric("End Date", analyzer.df['DATE'].max().strftime('%Y-%m-%d'))
+
+        # Show warning if data was filtered
+        if analyzer.dropped_count > 0:
+            pct = analyzer.dropped_count / analyzer.original_count * 100
+            st.warning(f"Filtered out {analyzer.dropped_count:,} rows with missing temperature data "
+                      f"({pct:.1f}% of {analyzer.original_count:,} total rows)")
 
     except Exception as e:
         st.error(f"Error loading data: {e}")

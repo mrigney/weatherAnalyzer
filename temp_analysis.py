@@ -46,6 +46,20 @@ class TempAnalyzer:
         self.df['DATE'] = pd.to_datetime(self.df['DATE'])
         self.df = self.df.sort_values('DATE').reset_index(drop=True)
 
+        # Filter out rows with missing TMAX or TMIN
+        self.original_count = len(self.df)
+        self.df = self.df.dropna(subset=['TMAX', 'TMIN'])
+        self.dropped_count = self.original_count - len(self.df)
+
+        if self.dropped_count > 0:
+            print(f"Note: Dropped {self.dropped_count:,} rows with missing temperature data "
+                  f"({self.dropped_count/self.original_count*100:.1f}% of {self.original_count:,} total rows)")
+
+        if len(self.df) == 0:
+            raise ValueError("No valid temperature data found after filtering out missing values.")
+
+        self.df = self.df.reset_index(drop=True)
+
         # Calculate mean if not present or has NaN values
         if 'TAVG' not in self.df.columns or self.df['TAVG'].isna().any():
             self.df['TAVG'] = (self.df['TMAX'] + self.df['TMIN']) / 2
