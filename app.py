@@ -142,7 +142,11 @@ def render_streak_analysis(analyzer):
     with col2:
         threshold = st.number_input("Threshold (°F):", value=90.0, step=1.0, key="streak_threshold")
     with col3:
-        direction = st.selectbox("Direction:", ["above", "below"], key="streak_direction")
+        direction = st.selectbox(
+            "Direction:", ["above", "below"],
+            format_func=lambda x: "at or above" if x == "above" else "at or below",
+            key="streak_direction"
+        )
     with col4:
         top_n = st.slider("Top N results:", 1, 20, 10, key="streak_topn")
 
@@ -160,7 +164,8 @@ def render_streak_analysis(analyzer):
             return
 
         # Display results
-        st.subheader(f"Top {len(streaks)} Streaks: {metric} {direction} {threshold}°F")
+        dir_label = "at or above" if direction == "above" else "at or below"
+        st.subheader(f"Top {len(streaks)} Streaks: {metric} {dir_label} {threshold}°F")
 
         # Format for display
         display_df = streaks.copy()
@@ -422,7 +427,11 @@ def render_histogram_analysis(analyzer):
     with col4:
         threshold = st.number_input("Threshold (°F):", value=32.0, step=1.0, key="hist_threshold")
     with col5:
-        direction = st.selectbox("Direction:", ["below", "above"], key="hist_direction")
+        direction = st.selectbox(
+            "Direction:", ["below", "above"],
+            format_func=lambda x: "at or above" if x == "above" else "at or below",
+            key="hist_direction"
+        )
 
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     range_str = f"{months[start_month-1]} {start_day} - {months[end_month-1]} {end_day}"
