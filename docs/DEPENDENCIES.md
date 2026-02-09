@@ -7,6 +7,7 @@
 | pandas | 1.5.0 | Data manipulation and analysis |
 | numpy | 1.21.0 | Numerical operations |
 | streamlit | 1.20.0 | Web-based GUI (optional, only needed for app.py) |
+| plotly | 5.0.0 | Interactive charts in the GUI (optional, only needed for app.py) |
 
 ## Quick Install
 
@@ -24,9 +25,9 @@ pip install pandas numpy
 
 ## Full Install (with GUI)
 
-For the complete package including the Streamlit web interface:
+For the complete package including the Streamlit web interface with interactive Plotly charts:
 ```bash
-pip install pandas numpy streamlit
+pip install pandas numpy streamlit plotly
 ```
 
 ## Python Version
@@ -40,6 +41,7 @@ Check if dependencies are installed:
 ```bash
 python -c "import pandas; import numpy; print('Core dependencies OK')"
 python -c "import streamlit; print('Streamlit OK')"
+python -c "import plotly; print('Plotly OK')"
 ```
 
 ## Troubleshooting

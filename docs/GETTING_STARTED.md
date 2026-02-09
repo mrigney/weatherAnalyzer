@@ -168,9 +168,9 @@ python3 temp_analysis.py hsvWeather_112024.csv --streak --metric TMAX --threshol
    python3 -m streamlit run app.py  # Mac
    ```
 4. A browser window opens with the interface
-5. Select an analysis type from the sidebar
+5. Select an analysis type from the sidebar (9 types available). A brief description appears below the dropdown.
 6. Fill in the parameters and click the analysis button
-7. View results in tables and charts
+7. View results in summary metrics, interactive Plotly charts, and data tables
 
 To stop the GUI, press `Ctrl + C` in the terminal.
 
@@ -196,6 +196,26 @@ python temp_analysis.py hsvWeather_112024.csv --period --metric TAVG --days 7 --
 Find coldest winters:
 ```
 python temp_analysis.py hsvWeather_112024.csv --season winter --extreme coldest --top 5
+```
+
+Track how many 100°F+ days per year (with trend):
+```
+python temp_analysis.py hsvWeather_112024.csv --event-freq --metric TMAX --threshold 100 --direction above
+```
+
+Find first/last freeze dates by year:
+```
+python temp_analysis.py hsvWeather_112024.csv --freeze-dates
+```
+
+Generate a temperature anomaly heatmap:
+```
+python temp_analysis.py hsvWeather_112024.csv --heatmap --metric TAVG --heatmap-mode anomaly
+```
+
+View daily record envelope with a year overlay:
+```
+python temp_analysis.py hsvWeather_112024.csv --climate-band --metric TMAX --overlay-year 2023
 ```
 
 Get help:

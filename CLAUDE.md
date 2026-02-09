@@ -64,6 +64,38 @@ result = analyzer.threshold_histogram(1, 1, 1, 31, metric='TMIN', threshold=32, 
 ```
 CLI: `python temp_analysis.py data.csv --histogram 1/1-1/31 --metric TMIN --threshold 32 --direction below`
 
+### 6. Extreme Event Frequency
+Count days per year where temperature crosses a threshold, with trendline analysis.
+```python
+freq_data = analyzer.find_extreme_event_frequency(metric='TMAX', threshold=100, direction='above')
+# Returns DataFrame with year, event_days, total_days, percentage
+```
+CLI: `python temp_analysis.py data.csv --event-freq --metric TMAX --threshold 100 --direction above`
+
+### 7. Freeze Date Tracker
+Track first fall freeze and last spring freeze dates, plus growing season length.
+```python
+freeze_data = analyzer.find_freeze_dates(metric='TMIN', threshold=32.0)
+# Returns DataFrame with year, last_spring_freeze, first_fall_freeze, growing_season_days, spring_doy, fall_doy
+```
+CLI: `python temp_analysis.py data.csv --freeze-dates` (defaults to TMIN <= 32°F)
+
+### 8. Temperature Heatmap
+Year × month heatmap showing temperature patterns. Supports absolute values or anomaly (departure from long-term mean).
+```python
+heatmap = analyzer.create_temperature_heatmap(metric='TAVG', mode='anomaly')
+# Returns pivoted DataFrame: index=year, columns=month names, values=avg temp or anomaly
+```
+CLI: `python temp_analysis.py data.csv --heatmap --metric TAVG --heatmap-mode anomaly`
+
+### 9. Daily Record Envelope (Climate Band)
+Daily record highs, lows, and long-term averages by day of year. Supports seasonal sub-selection and year overlay.
+```python
+records = analyzer.calculate_daily_records(metric='TMAX', start_month=6, start_day=1, end_month=8, end_day=31)
+overlay = analyzer.get_year_overlay_data(year=2023, metric='TMAX')
+```
+CLI: `python temp_analysis.py data.csv --climate-band --metric TMAX --overlay-year 2023 --band-range 6/1-8/31`
+
 ## Running the Tool
 
 ### Command Line
@@ -107,3 +139,4 @@ python temp_analysis.py data.csv --streak --threshold 90 --map MaxTemp=TMAX MinT
 - pandas
 - numpy
 - streamlit (for GUI only)
+- plotly (for interactive charts in GUI)

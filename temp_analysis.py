@@ -4,6 +4,7 @@ Temperature Analysis Utility
 Analyzes temperature streaks and extreme periods from historical weather data.
 """
 
+import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -387,6 +388,250 @@ class TempAnalyzer:
             'by_year': year_stats.sort_values('year', ascending=False).reset_index(drop=True)
         }
 
+    def find_extreme_event_frequency(self,
+                                    metric: Literal['TMIN', 'TMAX', 'TAVG'] = 'TMAX',
+                                    threshold: float = 100.0,
+                                    direction: Literal['above', 'below'] = 'above') -> pd.DataFrame:
+        """
+        Count days per year where temperature meets a threshold.
+
+        Args:
+            metric: Temperature metric to analyze ('TMIN', 'TMAX', 'TAVG')
+            threshold: Temperature threshold in Fahrenheit
+            direction: 'above' (>=) or 'below' (<=) threshold
+
+        Returns:
+            DataFrame with columns: year, event_days, total_days, percentage
+            Sorted by year ascending
+        """
+        df = self.df.copy()
+        df['year'] = df['DATE'].dt.year
+
+        if direction == 'above':
+            df['meets_threshold'] = df[metric] >= threshold
+        else:
+            df['meets_threshold'] = df[metric] <= threshold
+
+        year_stats = df.groupby('year').agg({
+            'meets_threshold': 'sum',
+            'DATE': 'count'
+        }).reset_index()
+        year_stats.columns = ['year', 'event_days', 'total_days']
+        year_stats['event_days'] = year_stats['event_days'].astype(int)
+        year_stats['percentage'] = (year_stats['event_days'] / year_stats['total_days'] * 100).round(1)
+
+        return year_stats.sort_values('year').reset_index(drop=True)
+
+    def find_freeze_dates(self,
+                         metric: Literal['TMIN', 'TMAX', 'TAVG'] = 'TMIN',
+                         threshold: float = 32.0) -> pd.DataFrame:
+        """
+        Find first fall freeze and last spring freeze for each year.
+
+        Args:
+            metric: Temperature metric to analyze ('TMIN', 'TMAX', 'TAVG')
+            threshold: Freeze threshold in Fahrenheit (default: 32.0)
+
+        Returns:
+            DataFrame with columns: year, last_spring_freeze, first_fall_freeze,
+                                    growing_season_days, spring_doy, fall_doy
+            Sorted by year ascending
+        """
+        df = self.df.copy()
+        df['year'] = df['DATE'].dt.year
+        df['month'] = df['DATE'].dt.month
+        df['doy'] = df['DATE'].dt.dayofyear
+
+        freeze_days = df[df[metric] <= threshold]
+
+        results = []
+        for year in sorted(df['year'].unique()):
+            year_freezes = freeze_days[freeze_days['year'] == year]
+
+            # Last spring freeze: latest freeze date before July 1
+            spring = year_freezes[year_freezes['month'] < 7]
+            last_spring = spring['DATE'].max() if len(spring) > 0 else pd.NaT
+            spring_doy = spring['doy'].max() if len(spring) > 0 else np.nan
+
+            # First fall freeze: earliest freeze date on/after July 1
+            fall = year_freezes[year_freezes['month'] >= 7]
+            first_fall = fall['DATE'].min() if len(fall) > 0 else pd.NaT
+            fall_doy = fall['doy'].min() if len(fall) > 0 else np.nan
+
+            # Growing season length
+            if pd.notna(last_spring) and pd.notna(first_fall):
+                growing_days = (first_fall - last_spring).days
+            else:
+                growing_days = np.nan
+
+            results.append({
+                'year': year,
+                'last_spring_freeze': last_spring,
+                'first_fall_freeze': first_fall,
+                'growing_season_days': growing_days,
+                'spring_doy': spring_doy,
+                'fall_doy': fall_doy
+            })
+
+        return pd.DataFrame(results)
+
+    def create_temperature_heatmap(self,
+                                   metric: Literal['TMIN', 'TMAX', 'TAVG'] = 'TAVG',
+                                   mode: Literal['absolute', 'anomaly'] = 'absolute') -> pd.DataFrame:
+        """
+        Create temperature heatmap data: years vs months.
+
+        Args:
+            metric: Temperature metric to analyze ('TMIN', 'TMAX', 'TAVG')
+            mode: 'absolute' for actual temps or 'anomaly' for departure from long-term mean
+
+        Returns:
+            DataFrame with years as index and month names as columns.
+            Values are average temperatures or anomalies.
+        """
+        df = self.df.copy()
+        df['year'] = df['DATE'].dt.year
+        df['month'] = df['DATE'].dt.month
+
+        monthly = df.groupby(['year', 'month'])[metric].mean().reset_index()
+        pivot = monthly.pivot(index='year', columns='month', values=metric)
+
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        pivot.columns = [month_names[m - 1] for m in pivot.columns]
+
+        if mode == 'anomaly':
+            long_term_means = pivot.mean()
+            pivot = pivot - long_term_means
+
+        return pivot
+
+    def calculate_daily_records(self,
+                                metric: Literal['TMIN', 'TMAX', 'TAVG'] = 'TMAX',
+                                start_month: int = None,
+                                start_day: int = None,
+                                end_month: int = None,
+                                end_day: int = None) -> pd.DataFrame:
+        """
+        Calculate daily record highs, lows, and averages for each day of year.
+
+        Args:
+            metric: Temperature metric to analyze ('TMIN', 'TMAX', 'TAVG')
+            start_month: Optional start month (1-12) for seasonal filtering
+            start_day: Optional start day for seasonal filtering
+            end_month: Optional end month (1-12) for seasonal filtering
+            end_day: Optional end day for seasonal filtering
+
+        Returns:
+            DataFrame with columns: day_of_year, month, day, record_high,
+                                    record_low, avg_temp, date_label
+        """
+        df = self.df.copy()
+        df['month'] = df['DATE'].dt.month
+        df['day'] = df['DATE'].dt.day
+        df['day_of_year'] = df['DATE'].dt.dayofyear
+
+        # Apply seasonal filter if provided
+        if start_month is not None and end_month is not None:
+            spans_year = (start_month > end_month) or (start_month == end_month and start_day > end_day)
+            if spans_year:
+                mask = ((df['month'] > start_month) |
+                        ((df['month'] == start_month) & (df['day'] >= start_day)) |
+                        (df['month'] < end_month) |
+                        ((df['month'] == end_month) & (df['day'] <= end_day)))
+            else:
+                mask = (((df['month'] > start_month) |
+                         ((df['month'] == start_month) & (df['day'] >= start_day))) &
+                        ((df['month'] < end_month) |
+                         ((df['month'] == end_month) & (df['day'] <= end_day))))
+            df = df[mask]
+
+        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+        daily = df.groupby(['month', 'day']).agg({
+            metric: ['max', 'min', 'mean'],
+            'day_of_year': 'first'
+        }).reset_index()
+        daily.columns = ['month', 'day', 'record_high', 'record_low', 'avg_temp', 'day_of_year']
+        daily['date_label'] = daily.apply(lambda r: f"{months[int(r['month'])-1]} {int(r['day'])}", axis=1)
+
+        # For year-spanning ranges, shift "after new year" days so they plot contiguously
+        if start_month is not None and end_month is not None:
+            spans_year = (start_month > end_month) or (start_month == end_month and start_day > end_day)
+            if spans_year:
+                daily['plot_x'] = daily.apply(
+                    lambda r: r['day_of_year'] + 365 if r['month'] <= end_month else r['day_of_year'], axis=1)
+            else:
+                daily['plot_x'] = daily['day_of_year']
+        else:
+            daily['plot_x'] = daily['day_of_year']
+
+        return daily.sort_values('plot_x').reset_index(drop=True)
+
+    def get_year_overlay_data(self,
+                              year: int,
+                              metric: Literal['TMIN', 'TMAX', 'TAVG'] = 'TMAX',
+                              start_month: int = None,
+                              start_day: int = None,
+                              end_month: int = None,
+                              end_day: int = None) -> pd.DataFrame:
+        """
+        Get daily temperature data for a specific year to overlay on climate band.
+
+        Args:
+            year: Year to extract
+            metric: Temperature metric
+            start_month/start_day/end_month/end_day: Optional seasonal filter
+
+        Returns:
+            DataFrame with columns: day_of_year, month, day, temp, date_label
+        """
+        df = self.df.copy()
+        df['month'] = df['DATE'].dt.month
+        df['day'] = df['DATE'].dt.day
+        df['day_of_year'] = df['DATE'].dt.dayofyear
+
+        df = df[df['DATE'].dt.year == year]
+
+        if start_month is not None and end_month is not None:
+            spans_year = (start_month > end_month) or (start_month == end_month and start_day > end_day)
+            if spans_year:
+                mask = ((df['month'] > start_month) |
+                        ((df['month'] == start_month) & (df['day'] >= start_day)) |
+                        (df['month'] < end_month) |
+                        ((df['month'] == end_month) & (df['day'] <= end_day)))
+            else:
+                mask = (((df['month'] > start_month) |
+                         ((df['month'] == start_month) & (df['day'] >= start_day))) &
+                        ((df['month'] < end_month) |
+                         ((df['month'] == end_month) & (df['day'] <= end_day))))
+            df = df[mask]
+
+        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+        result = df[['day_of_year', 'month', 'day']].copy()
+        result['temp'] = df[metric].values
+
+        if len(result) == 0:
+            result['date_label'] = pd.Series(dtype=str)
+            result['plot_x'] = pd.Series(dtype=float)
+        else:
+            result['date_label'] = result.apply(lambda r: f"{months[int(r['month'])-1]} {int(r['day'])}", axis=1)
+            # For year-spanning ranges, shift "after new year" days so they plot contiguously
+            if start_month is not None and end_month is not None:
+                spans_year = (start_month > end_month) or (start_month == end_month and start_day > end_day)
+                if spans_year:
+                    result['plot_x'] = result.apply(
+                        lambda r: r['day_of_year'] + 365 if r['month'] <= end_month else r['day_of_year'], axis=1)
+                else:
+                    result['plot_x'] = result['day_of_year']
+            else:
+                result['plot_x'] = result['day_of_year']
+
+        return result.sort_values('plot_x').reset_index(drop=True)
+
     def print_streak_report(self, streaks: pd.DataFrame, metric: str,
                            threshold: float, direction: str):
         """Print formatted streak report."""
@@ -500,6 +745,143 @@ class TempAnalyzer:
             print(f"  {int(row['year'])}: {days:3d} days ({pct:5.1f}%)  {bar}")
         print()
 
+    def print_event_frequency_report(self, freq_data: pd.DataFrame,
+                                     metric: str, threshold: float, direction: str):
+        """Print formatted extreme event frequency report."""
+        dir_symbol = '<=' if direction == 'below' else '>='
+
+        print(f"\n{'='*80}")
+        print(f"EXTREME EVENT FREQUENCY: {metric} {dir_symbol} {threshold}°F")
+        print(f"{'='*80}\n")
+
+        avg_days = freq_data['event_days'].mean()
+        min_row = freq_data.loc[freq_data['event_days'].idxmin()]
+        max_row = freq_data.loc[freq_data['event_days'].idxmax()]
+
+        # Trendline
+        z = np.polyfit(freq_data['year'], freq_data['event_days'], 1)
+        slope = z[0]
+        if abs(slope) < 0.05:
+            trend_desc = "stable"
+        elif slope > 0:
+            trend_desc = "increasing"
+        else:
+            trend_desc = "decreasing"
+
+        print("SUMMARY")
+        print("-" * 40)
+        print(f"  Total Years:  {len(freq_data)}")
+        print(f"  Avg Events:   {avg_days:.1f} days/year")
+        print(f"  Minimum:      {int(min_row['event_days'])} days ({int(min_row['year'])})")
+        print(f"  Maximum:      {int(max_row['event_days'])} days ({int(max_row['year'])})")
+        print(f"  Trend:        {slope:+.2f} days/year ({trend_desc})")
+        print()
+
+        print("YEAR-BY-YEAR")
+        print("-" * 40)
+        max_days = freq_data['event_days'].max()
+        bar_width = 30
+        for _, row in freq_data.iterrows():
+            days = int(row['event_days'])
+            pct = row['percentage']
+            bar_len = int((days / max_days) * bar_width) if max_days > 0 else 0
+            bar = '#' * bar_len
+            print(f"  {int(row['year'])}: {days:3d} days ({pct:5.1f}%)  {bar}")
+        print()
+
+    def print_freeze_dates_report(self, freeze_data: pd.DataFrame,
+                                  metric: str, threshold: float):
+        """Print formatted freeze date tracker report."""
+        print(f"\n{'='*80}")
+        print(f"FREEZE DATE TRACKER: {metric} <= {threshold}°F")
+        print(f"{'='*80}\n")
+
+        valid_spring = freeze_data.dropna(subset=['last_spring_freeze'])
+        valid_fall = freeze_data.dropna(subset=['first_fall_freeze'])
+        valid_season = freeze_data.dropna(subset=['growing_season_days'])
+
+        print("SUMMARY")
+        print("-" * 40)
+        if len(valid_spring) > 0:
+            avg_spring_doy = valid_spring['spring_doy'].mean()
+            avg_spring_date = pd.Timestamp('2000-01-01') + pd.Timedelta(days=int(avg_spring_doy) - 1)
+            print(f"  Avg Last Spring Freeze:  {avg_spring_date.strftime('%b %d')} (day {int(avg_spring_doy)})")
+        if len(valid_fall) > 0:
+            avg_fall_doy = valid_fall['fall_doy'].mean()
+            avg_fall_date = pd.Timestamp('2000-01-01') + pd.Timedelta(days=int(avg_fall_doy) - 1)
+            print(f"  Avg First Fall Freeze:   {avg_fall_date.strftime('%b %d')} (day {int(avg_fall_doy)})")
+        if len(valid_season) > 0:
+            print(f"  Avg Growing Season:      {valid_season['growing_season_days'].mean():.0f} days")
+        print(f"  Years Analyzed:          {len(freeze_data)}")
+        print()
+
+        print(f"{'Year':<6} {'Last Spring':<14} {'First Fall':<14} {'Growing Season'}")
+        print("-" * 55)
+        for _, row in freeze_data.iterrows():
+            year = int(row['year'])
+            spring = row['last_spring_freeze'].strftime('%b %d') if pd.notna(row['last_spring_freeze']) else 'No freeze'
+            fall = row['first_fall_freeze'].strftime('%b %d') if pd.notna(row['first_fall_freeze']) else 'No freeze'
+            season = f"{int(row['growing_season_days'])} days" if pd.notna(row['growing_season_days']) else 'N/A'
+            print(f"  {year:<4} {spring:<14} {fall:<14} {season}")
+        print()
+
+    def print_heatmap_report(self, heatmap_data: pd.DataFrame, metric: str, mode: str):
+        """Print formatted heatmap report."""
+        mode_label = 'Absolute Values' if mode == 'absolute' else 'Anomaly from Mean'
+
+        print(f"\n{'='*80}")
+        print(f"TEMPERATURE HEATMAP: {metric} ({mode_label}, Monthly)")
+        print(f"{'='*80}\n")
+
+        # Header
+        print(f"{'Year':<6}", end='')
+        for col in heatmap_data.columns:
+            print(f"{col:>7}", end='')
+        print()
+        print("-" * (6 + 7 * len(heatmap_data.columns)))
+
+        for year, row in heatmap_data.iterrows():
+            print(f"{year:<6}", end='')
+            for val in row:
+                if pd.notna(val):
+                    print(f"{val:7.1f}", end='')
+                else:
+                    print(f"{'':>7}", end='')
+            print()
+        print()
+
+    def print_climate_band_report(self, records: pd.DataFrame, metric: str,
+                                  overlay_data=None, overlay_year=None):
+        """Print formatted climate band report."""
+        print(f"\n{'='*80}")
+        print(f"DAILY RECORD ENVELOPE: {metric}")
+        print(f"{'='*80}\n")
+
+        print("RECORDS SUMMARY")
+        print("-" * 40)
+        print(f"  Highest Record High:  {records['record_high'].max():.0f}°F")
+        print(f"  Lowest Record Low:    {records['record_low'].min():.0f}°F")
+        print(f"  Warmest Avg Day:      {records['avg_temp'].max():.1f}°F")
+        print(f"  Coldest Avg Day:      {records['avg_temp'].min():.1f}°F")
+        print()
+
+        # Show a sample of records
+        print(f"{'Date':<10} {'Record Low':>11} {'Average':>9} {'Record High':>12}")
+        print("-" * 45)
+        step = max(1, len(records) // 20)
+        for i in range(0, len(records), step):
+            row = records.iloc[i]
+            print(f"  {row['date_label']:<8} {row['record_low']:8.0f}°F  {row['avg_temp']:6.1f}°F  {row['record_high']:8.0f}°F")
+
+        if overlay_data is not None and overlay_year is not None and len(overlay_data) > 0:
+            print(f"\nOVERLAY: {overlay_year}")
+            print("-" * 40)
+            print(f"  Data points: {len(overlay_data)} days")
+            print(f"  Min temp:    {overlay_data['temp'].min():.0f}°F")
+            print(f"  Max temp:    {overlay_data['temp'].max():.0f}°F")
+            print(f"  Avg temp:    {overlay_data['temp'].mean():.1f}°F")
+        print()
+
 
 def main():
     """Example usage and interactive queries."""
@@ -528,6 +910,19 @@ Examples:
   # Histogram: how often does TMIN drop below 32°F in January?
   python temp_analysis.py data.csv --histogram 1/1-1/31 --threshold 32 --direction below --metric TMIN
 
+  # Extreme event frequency: how many days per year does TMAX hit 100°F?
+  python temp_analysis.py data.csv --event-freq --metric TMAX --threshold 100 --direction above
+
+  # Freeze date tracker: first/last freeze dates by year
+  python temp_analysis.py data.csv --freeze-dates --threshold 32
+
+  # Temperature heatmap (absolute or anomaly)
+  python temp_analysis.py data.csv --heatmap --metric TAVG --heatmap-mode anomaly
+
+  # Climate band: daily record envelope with year overlay
+  python temp_analysis.py data.csv --climate-band --metric TMAX --overlay-year 2023
+  python temp_analysis.py data.csv --climate-band --metric TMAX --band-range 6/1-8/31
+
   # Use custom column names from your CSV
   python temp_analysis.py data.csv --streak --threshold 90 --map Date=DATE MaxTemp=TMAX MinTemp=TMIN
         """)
@@ -543,6 +938,20 @@ Examples:
                        help='Find extremes for custom date range (e.g., 1/3-1/20)')
     parser.add_argument('--histogram', metavar='M/D-M/D',
                        help='Threshold histogram for date range (e.g., 1/1-1/31)')
+    parser.add_argument('--event-freq', action='store_true',
+                       help='Analyze extreme event frequency over time')
+    parser.add_argument('--freeze-dates', action='store_true',
+                       help='Track first/last freeze dates by year')
+    parser.add_argument('--heatmap', action='store_true',
+                       help='Generate temperature heatmap (year x month)')
+    parser.add_argument('--heatmap-mode', choices=['absolute', 'anomaly'], default='absolute',
+                       help='Heatmap mode: absolute temps or anomaly from mean (default: absolute)')
+    parser.add_argument('--climate-band', action='store_true',
+                       help='Generate daily record envelope chart')
+    parser.add_argument('--overlay-year', type=int,
+                       help='Year to overlay on climate band')
+    parser.add_argument('--band-range', metavar='M/D-M/D',
+                       help='Date range for climate band (e.g., 6/1-8/31 for summer)')
     parser.add_argument('--metric', choices=['TMIN', 'TMAX', 'TAVG'], default='TMAX',
                        help='Temperature metric (default: TMAX)')
     parser.add_argument('--threshold', type=float, help='Temperature threshold for streaks/histogram')
@@ -651,6 +1060,59 @@ Examples:
         )
         analyzer.print_histogram_report(result, start_month, start_day, end_month, end_day,
                                         args.metric, args.threshold, args.direction)
+        ran_analysis = True
+
+    if args.event_freq:
+        if args.threshold is None:
+            parser.error("--threshold required for event frequency analysis")
+        freq_data = analyzer.find_extreme_event_frequency(
+            metric=args.metric,
+            threshold=args.threshold,
+            direction=args.direction
+        )
+        analyzer.print_event_frequency_report(freq_data, args.metric,
+                                              args.threshold, args.direction)
+        ran_analysis = True
+
+    if args.freeze_dates:
+        freeze_threshold = args.threshold if args.threshold is not None else 32.0
+        # Default to TMIN for freeze analysis unless user explicitly set --metric
+        freeze_metric = args.metric if '--metric' in sys.argv else 'TMIN'
+        freeze_data = analyzer.find_freeze_dates(
+            metric=freeze_metric,
+            threshold=freeze_threshold
+        )
+        analyzer.print_freeze_dates_report(freeze_data, freeze_metric, freeze_threshold)
+        ran_analysis = True
+
+    if args.heatmap:
+        heatmap_data = analyzer.create_temperature_heatmap(
+            metric=args.metric,
+            mode=args.heatmap_mode
+        )
+        analyzer.print_heatmap_report(heatmap_data, args.metric, args.heatmap_mode)
+        ran_analysis = True
+
+    if args.climate_band:
+        if args.band_range:
+            sm, sd, em, ed = parse_date_range(args.band_range)
+        else:
+            sm = sd = em = ed = None
+        records = analyzer.calculate_daily_records(
+            metric=args.metric,
+            start_month=sm, start_day=sd,
+            end_month=em, end_day=ed
+        )
+        overlay_data = None
+        if args.overlay_year:
+            overlay_data = analyzer.get_year_overlay_data(
+                year=args.overlay_year,
+                metric=args.metric,
+                start_month=sm, start_day=sd,
+                end_month=em, end_day=ed
+            )
+        analyzer.print_climate_band_report(records, args.metric,
+                                           overlay_data, args.overlay_year)
         ran_analysis = True
 
     if not ran_analysis:
